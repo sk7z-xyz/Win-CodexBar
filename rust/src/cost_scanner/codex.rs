@@ -37,6 +37,24 @@ fn summary_from_cached_report(
     }
 }
 
+fn summary_from_cached_report_with_model_breakdown(
+    report: &CachedCostReport,
+    cache: &CostUsageCache,
+    range: &CostUsageDayRange,
+    period_start: NaiveDate,
+    period_end: NaiveDate,
+) -> CostSummary {
+    let mut summary = summary_from_cached_report(report, period_start, period_end);
+    let mut breakdown = CostSummary::default();
+    add_codex_days_map_to_summary(&mut breakdown, &cache.days, range);
+    summary.by_model = breakdown.by_model;
+    summary.by_model_tokens = breakdown.by_model_tokens;
+    summary.by_speed = breakdown.by_speed;
+    summary.by_speed_tokens = breakdown.by_speed_tokens;
+    summary.unknown_models = breakdown.unknown_models;
+    summary
+}
+
 fn codex_fork_parent_is_safe(cache: &CostUsageCache, usage: &CostUsageFileUsage) -> bool {
     usage.codex_forked_from_id.as_deref().is_none()
         || codex_parent_baseline(
@@ -468,7 +486,11 @@ impl CostScanner {
             cache
                 .previous_report
                 .as_ref()
-                .map(|report| summary_from_cached_report(report, start_date, today))
+                .map(|report| {
+                    summary_from_cached_report_with_model_breakdown(
+                        report, &cache, &range, start_date, today,
+                    )
+                })
                 .unwrap_or(rebuilt)
         } else {
             rebuilt
