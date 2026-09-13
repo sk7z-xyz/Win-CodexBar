@@ -166,6 +166,10 @@ describe("MenuCard", () => {
         thirtyDayTokens: 584_000,
         latestTokens: null,
         topModel: "glim-4.6",
+        modelUsage: [
+          { model: "gpt-5.6-luna", tokens: 420_000, cost: 0.84 },
+          { model: "gpt-5.6-sol", tokens: 164_000, cost: 0.39 },
+        ],
         estimateNote: "Estimated from local logs",
         tokenCostUpdatedAtMs: 1234,
       },
@@ -559,6 +563,11 @@ describe("MenuCard", () => {
     expect(screen.getAllByText("$1.23").length).toBeGreaterThan(0);
     expect(screen.getByText("30d tokens")).toBeInTheDocument();
     expect(screen.getByText("584K")).toBeInTheDocument();
+    expect(screen.getByText("gpt-5.6-luna")).toBeInTheDocument();
+    expect(screen.getByText("420K tokens · $0.84")).toBeInTheDocument();
+    expect(screen.getByText("gpt-5.6-sol")).toBeInTheDocument();
+    expect(screen.getByText("164K tokens · $0.39")).toBeInTheDocument();
+    expect(screen.queryByText(/Top model:/)).not.toBeInTheDocument();
     expect(screen.getByText("Estimated from local logs")).toBeInTheDocument();
     const details = container.querySelector<HTMLDetailsElement>(".menu-card__more")!;
     expect(details.open).toBe(false);

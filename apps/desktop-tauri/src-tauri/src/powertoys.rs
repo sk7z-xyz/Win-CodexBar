@@ -227,6 +227,7 @@ mod tests {
                 thirty_day_tokens: Some(42_000),
                 latest_tokens: Some(1_200),
                 top_model: Some("gpt-5".to_string()),
+                model_usage: Vec::new(),
                 estimate_note: "cached".to_string(),
                 token_cost_updated_at_ms: 1234,
             }),

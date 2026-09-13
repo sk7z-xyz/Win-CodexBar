@@ -63,8 +63,17 @@ pub struct ProviderLocalUsageSummary {
     pub thirty_day_tokens: Option<u64>,
     pub latest_tokens: Option<u64>,
     pub top_model: Option<String>,
+    pub model_usage: Vec<ProviderLocalModelUsage>,
     pub estimate_note: String,
     pub token_cost_updated_at_ms: i64,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ProviderLocalModelUsage {
+    pub model: String,
+    pub tokens: Option<u64>,
+    pub cost: Option<f64>,
 }
 
 /// Full chart data bundle for one provider.
@@ -229,6 +238,7 @@ fn load_local_usage_summary_with_unknown_models(
             thirty_day_tokens: non_zero_u64(thirty_day_tokens),
             latest_tokens: non_zero_u64(latest_tokens),
             top_model: top_model(&thirty_day),
+            model_usage: model_usage(&thirty_day),
             estimate_note: localized_estimate_note(provider_id, lang),
             token_cost_updated_at_ms: current_unix_ms(),
         }),
@@ -460,6 +470,34 @@ fn top_model(summary: &CostSummary) -> Option<String> {
         })
 }
 
+fn model_usage(summary: &CostSummary) -> Vec<ProviderLocalModelUsage> {
+    let mut model_names: HashSet<&String> = summary.by_model_tokens.keys().collect();
+    model_names.extend(summary.by_model.keys());
+    let mut rows: Vec<_> = model_names
+        .into_iter()
+        .map(|model| ProviderLocalModelUsage {
+            model: model.clone(),
+            tokens: summary
+                .by_model_tokens
+                .get(model)
+                .and_then(|counts| non_zero_u64(counts.total())),
+            cost: summary.by_model.get(model).copied().and_then(non_zero_f64),
+        })
+        .collect();
+    rows.sort_by(|a, b| {
+        b.tokens
+            .unwrap_or_default()
+            .cmp(&a.tokens.unwrap_or_default())
+            .then_with(|| {
+                b.cost
+                    .unwrap_or_default()
+                    .total_cmp(&a.cost.unwrap_or_default())
+            })
+            .then_with(|| a.model.cmp(&b.model))
+    });
+    rows
+}
+
 fn load_openai_dashboard_chart_data(
     provider_id: &str,
     account_email: Option<&str>,
@@ -529,8 +567,9 @@ pub(crate) fn load_openai_dashboard_chart_data_for_test(
 #[cfg(test)]
 mod tests {
     use super::{
-        CostFetchFailure, ProviderLocalUsageSummary, cost_fetch_failure_allows_early_retry,
-        localized_estimate_note, token_cost_cache_is_fresh,
+        CostFetchFailure, ProviderLocalModelUsage, ProviderLocalUsageSummary,
+        cost_fetch_failure_allows_early_retry, localized_estimate_note, model_usage,
+        token_cost_cache_is_fresh,
     };
     use crate::commands::is_provider_cache_fresh;
     use codexbar::settings::Language;
@@ -570,6 +609,11 @@ mod tests {
             thirty_day_tokens: Some(300),
             latest_tokens: Some(40),
             top_model: Some("gpt-5".to_string()),
+            model_usage: vec![ProviderLocalModelUsage {
+                model: "gpt-5".to_string(),
+                tokens: Some(300),
+                cost: Some(2.0),
+            }],
             estimate_note: "estimated".to_string(),
             token_cost_updated_at_ms: 1234,
         };
@@ -579,6 +623,21 @@ mod tests {
             json.get("tokenCostUpdatedAtMs").and_then(|v| v.as_i64()),
             Some(1234)
         );
+        assert_eq!(json["modelUsage"][0]["model"], "gpt-5");
+        assert_eq!(json["modelUsage"][0]["tokens"], 300);
+    }
+
+    #[test]
+    fn model_usage_includes_and_sorts_every_costed_model() {
+        let mut summary = codexbar::cost_scanner::CostSummary::default();
+        summary.by_model.insert("gpt-5.6-sol".to_string(), 1.25);
+        summary.by_model.insert("gpt-5.6-luna".to_string(), 2.5);
+
+        let rows = model_usage(&summary);
+        assert_eq!(rows.len(), 2);
+        assert_eq!(rows[0].model, "gpt-5.6-luna");
+        assert_eq!(rows[0].cost, Some(2.5));
+        assert_eq!(rows[1].model, "gpt-5.6-sol");
     }
 
     #[test]

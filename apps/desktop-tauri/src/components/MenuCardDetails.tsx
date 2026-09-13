@@ -160,7 +160,21 @@ function LocalUsageBlock({
       )}
 
       <div className="menu-card__local-note">
-        {summary.topModel && <strong>{t("PanelTopModelPrefix")}: {summary.topModel}</strong>}
+        {summary.modelUsage && summary.modelUsage.length > 0 ? (
+          <div className="menu-card__model-usage" aria-label="Model usage">
+            {summary.modelUsage.map((item) => (
+              <div key={item.model} className="menu-card__model-usage-row">
+                <strong>{item.model}</strong>
+                <span>
+                  {item.tokens == null ? "—" : formatCompactCount(item.tokens)} tokens
+                  {item.cost == null ? "" : ` · ${formatCurrency(item.cost, "USD")}`}
+                </span>
+              </div>
+            ))}
+          </div>
+        ) : summary.topModel ? (
+          <strong>{t("PanelTopModelPrefix")}: {summary.topModel}</strong>
+        ) : null}
         <span>
           {summary.estimateNote === "Estimated from local logs"
             ? t("PanelEstimatedFromLocalLogs")

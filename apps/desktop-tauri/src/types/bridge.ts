@@ -777,6 +777,11 @@ export interface ProviderLocalUsageSummary {
   thirtyDayTokens: number | null;
   latestTokens: number | null;
   topModel: string | null;
+  modelUsage?: Array<{
+    model: string;
+    tokens: number | null;
+    cost: number | null;
+  }>;
   estimateNote: string;
   tokenCostUpdatedAtMs: number;
 }

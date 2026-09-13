@@ -4531,6 +4531,24 @@ html:has(.menu-surface--tray) {
   font-variant-numeric: tabular-nums;
 }
 
+.menu-card__model-usage {
+  display: grid;
+  gap: 3px;
+  width: 100%;
+}
+
+.menu-card__model-usage-row {
+  display: flex;
+  justify-content: space-between;
+  gap: 12px;
+  font-variant-numeric: tabular-nums;
+}
+
+.menu-card__model-usage-row > span {
+  color: var(--text-secondary);
+  white-space: nowrap;
+}
+
 .menu-card__charts {
   gap: 10px;
 }
