@@ -575,6 +575,39 @@ describe("MenuCard", () => {
     expect(details.open).toBe(true);
   });
 
+  it("refreshes rolling local usage when an auto-refreshed provider snapshot changes", async () => {
+    const resetAt = new Date(Date.now() + 4 * 60 * 60 * 1000).toISOString();
+    const first = provider(null, 10);
+    first.providerId = "codex";
+    first.displayName = "Codex";
+    first.primary = rateWindow(10, { windowMinutes: 5 * 60, resetsAt: resetAt });
+    first.updatedAt = "2026-05-24T00:00:00Z";
+    const rendered = renderCard(first);
+
+    await waitFor(() => {
+      expect(tauriMocks.getProviderChartData).toHaveBeenCalledTimes(1);
+    });
+
+    const refreshed = { ...first, updatedAt: "2026-05-24T00:05:00Z" };
+    rendered.rerender(
+      <LocaleProvider>
+        <MenuCard
+          provider={refreshed}
+          display={{ hideEmail: false, resetTimeRelative: true }}
+        />
+      </LocaleProvider>,
+    );
+
+    await waitFor(() => {
+      expect(tauriMocks.getProviderChartData).toHaveBeenCalledTimes(2);
+    });
+    expect(tauriMocks.getProviderChartData).toHaveBeenLastCalledWith(
+      "codex",
+      undefined,
+      resetAt,
+    );
+  });
+
   it("places Claude accounts above metrics and the collapsed usage details", async () => {
     tauriMocks.claudeAccountsList.mockResolvedValue([
       { id: "a", email: "a@example.com", organization: "Personal", isActive: true, isSaved: true },

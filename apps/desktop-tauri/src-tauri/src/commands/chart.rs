@@ -214,13 +214,6 @@ fn register_chart_scan(provider_id: &str) -> Arc<AtomicBool> {
     next
 }
 
-fn load_local_usage_summary(
-    provider_id: &str,
-    cancel: Option<&AtomicBool>,
-) -> Option<ProviderLocalUsageSummary> {
-    load_local_usage_summary_with_unknown_models(provider_id, None, cancel).0
-}
-
 fn load_local_usage_summary_with_unknown_models(
     provider_id: &str,
     reset_at: Option<&str>,
@@ -314,9 +307,18 @@ pub(crate) async fn refresh_provider_local_usage_cache(provider_ids: Vec<String>
         provider_ids
             .into_iter()
             .map(|provider_id| {
-                let (summary, unknown_models) =
-                    load_local_usage_summary_with_unknown_models(&provider_id, None, None);
-                (provider_id, summary, unknown_models)
+                // Keep the reset-at scope selected by an already-mounted
+                // chart. The enrichment pass normally runs without a reset
+                // timestamp, but replacing a reset-scoped entry with a
+                // `None` key makes the next chart request miss its cache and
+                // can race the provider refresh that triggered it.
+                let reset_at = cached_local_usage_reset_at(&provider_id);
+                let (summary, unknown_models) = load_local_usage_summary_with_unknown_models(
+                    &provider_id,
+                    reset_at.as_deref(),
+                    None,
+                );
+                (provider_id, reset_at, summary, unknown_models)
             })
             .collect::<Vec<_>>()
     })
@@ -332,7 +334,7 @@ pub(crate) async fn refresh_provider_local_usage_cache(provider_ids: Vec<String>
         }
     };
 
-    for (provider_id, mut summary, unknown_models) in scans {
+    for (provider_id, scanned_reset_at, mut summary, unknown_models) in scans {
         let pricing_provider = match provider_id.as_str() {
             "codex" => Some("openai"),
             "claude" => Some("anthropic"),
@@ -343,14 +345,40 @@ pub(crate) async fn refresh_provider_local_usage_cache(provider_ids: Vec<String>
                 .await
         {
             let rescan_provider = provider_id.clone();
+            let rescan_reset_at = scanned_reset_at.clone();
             summary = tauri::async_runtime::spawn_blocking(move || {
-                load_local_usage_summary(&rescan_provider, None)
+                load_local_usage_summary_with_unknown_models(
+                    &rescan_provider,
+                    rescan_reset_at.as_deref(),
+                    None,
+                )
+                .0
             })
             .await
             .unwrap_or(summary);
         }
-        store_local_usage_summary(&provider_id, None, summary);
+        // A chart request may have established a reset scope while the
+        // enrichment scan was running. Prefer that latest scope and rebuild
+        // only the inexpensive rolling model windows before storing, so the
+        // enrichment result cannot overwrite a newer reset-aware snapshot.
+        let reset_at = cached_local_usage_reset_at(&provider_id).or(scanned_reset_at);
+        if provider_id == "codex"
+            && let Some(ref mut usage) = summary
+        {
+            let (five_hour, recent) = codex_window_model_usage(reset_at.as_deref());
+            usage.five_hour_model_usage = five_hour;
+            usage.recent_model_usage = recent;
+        }
+        store_local_usage_summary(&provider_id, reset_at.as_deref(), summary);
     }
+}
+
+fn cached_local_usage_reset_at(provider_id: &str) -> Option<String> {
+    local_usage_cache().lock().ok().and_then(|guard| {
+        guard
+            .get(provider_id)
+            .and_then(|entry| entry.reset_at.clone())
+    })
 }
 
 #[cfg(test)]
