@@ -108,6 +108,7 @@ function LocalUsageBlock({
   costHistory: DailyCostPoint[];
 }) {
   const { t } = useLocale();
+  const [recentMinutes, setRecentMinutes] = useState(60);
   const isCodex = providerId === "codex";
   const visibleHistory = costHistory.slice(-30);
   const maxCost = Math.max(
@@ -161,7 +162,7 @@ function LocalUsageBlock({
 
       <div className="menu-card__local-note">
         {summary.modelUsage && summary.modelUsage.length > 0 ? (
-          <div className="menu-card__model-usage" aria-label="Model usage">
+          <div className="menu-card__model-usage" aria-label="30d model usage">
             {summary.modelUsage.map((item) => (
               <div key={item.model} className="menu-card__model-usage-row">
                 <strong>{item.model}</strong>
@@ -175,6 +176,46 @@ function LocalUsageBlock({
         ) : summary.topModel ? (
           <strong>{t("PanelTopModelPrefix")}: {summary.topModel}</strong>
         ) : null}
+        {isCodex && summary.fiveHourModelUsage && summary.fiveHourModelUsage.length > 0 && (
+          <div className="menu-card__model-usage menu-card__model-usage--window" aria-label="Model usage since 5h reset">
+            <span className="menu-card__local-label">Since 5h reset</span>
+            {summary.fiveHourModelUsage.map((item) => (
+              <div key={`5h-${item.model}`} className="menu-card__model-usage-row">
+                <strong>{item.model}</strong>
+                <span>
+                  {item.tokens == null ? "—" : formatCompactCount(item.tokens)} tokens
+                  {item.cost == null ? "" : ` · ${formatCurrency(item.cost, "USD")}`}
+                </span>
+              </div>
+            ))}
+          </div>
+        )}
+        {isCodex && summary.recentModelUsage && summary.recentModelUsage.length > 0 && (
+          <div className="menu-card__model-usage menu-card__model-usage--window" aria-label="Recent model usage">
+            <label className="menu-card__local-label">
+              Recent
+              <select
+                value={recentMinutes}
+                onChange={(event) => setRecentMinutes(Number(event.target.value))}
+                aria-label="Recent model usage window"
+              >
+                {summary.recentModelUsage.map((window) => (
+                  <option key={window.minutes} value={window.minutes}>{window.minutes}m</option>
+                ))}
+              </select>
+            </label>
+            {(summary.recentModelUsage.find((window) => window.minutes === recentMinutes)
+              ?? summary.recentModelUsage[summary.recentModelUsage.length - 1]).modelUsage.map((item) => (
+                <div key={`recent-${recentMinutes}-${item.model}`} className="menu-card__model-usage-row">
+                  <strong>{item.model}</strong>
+                  <span>
+                    {item.tokens == null ? "—" : formatCompactCount(item.tokens)} tokens
+                    {item.cost == null ? "" : ` · ${formatCurrency(item.cost, "USD")}`}
+                  </span>
+                </div>
+              ))}
+          </div>
+        )}
         <span>
           {summary.estimateNote === "Estimated from local logs"
             ? t("PanelEstimatedFromLocalLogs")

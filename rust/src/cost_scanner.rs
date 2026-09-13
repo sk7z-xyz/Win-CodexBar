@@ -26,8 +26,8 @@ use crate::codex_costs::{
 };
 use crate::codex_sessions::{codex_sessions_dir_candidates, default_wsl_roots};
 use crate::core::{
-    CachedCostReport, CodexScanPauseReason, CostScanOptions, CostUsageCache, CostUsageDayRange,
-    CostUsageFileUsage, JsonlScanner, ProviderId,
+    CachedCostReport, CodexScanPauseReason, CodexUsageRecord, CostScanOptions, CostUsageCache,
+    CostUsageDayRange, CostUsageFileUsage, JsonlScanner, ProviderId,
 };
 use crate::providers::opencodego::local as opencodego_local;
 use crate::settings::Settings;
@@ -128,6 +128,32 @@ impl CostSummary {
     pub fn format_total(&self) -> String {
         format!("${:.2}", self.total_cost_usd)
     }
+}
+
+/// Summarize timestamp-filtered Codex records while retaining the normal
+/// pricing and model attribution rules used by the persistent scanner.
+pub fn summarize_codex_records(records: &[CodexUsageRecord]) -> CostSummary {
+    let today = Local::now().date_naive();
+    let since = records
+        .iter()
+        .filter_map(|record| CostUsageDayRange::parse_day_key(&record.day_key))
+        .min()
+        .unwrap_or(today);
+    let until = records
+        .iter()
+        .filter_map(|record| CostUsageDayRange::parse_day_key(&record.day_key))
+        .max()
+        .unwrap_or(today);
+    let range = CostUsageDayRange::new(since, until);
+    let mut summary = CostSummary::default();
+    let (cost, has_tokens) = add_codex_records_to_summary(&mut summary, records, &range);
+    summary.total_cost_usd = cost;
+    summary.sessions_count = u32::from(has_tokens);
+    summary.period_start = Some(since);
+    summary.period_end = Some(until);
+    summary.history_coverage_established = true;
+    summary.known_zero = !has_tokens;
+    summary
 }
 
 fn is_cancelled(cancel: Option<&AtomicBool>) -> bool {

@@ -258,8 +258,12 @@ export function getAppInfo(): Promise<AppInfoBridge> {
 export function getProviderChartData(
   providerId: string,
   accountEmail?: string,
+  resetAt?: string,
 ): Promise<ProviderChartData> {
-  return invoke<ProviderChartData>("get_provider_chart_data", { providerId, accountEmail });
+  const args = resetAt == null
+    ? { providerId, accountEmail }
+    : { providerId, accountEmail, resetAt };
+  return invoke<ProviderChartData>("get_provider_chart_data", args);
 }
 
 export function getProviderLocalUsageSummary(

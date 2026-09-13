@@ -119,6 +119,11 @@ impl CodexParserState {
                 self.record_usage(
                     range,
                     day_key,
+                    parsed_timestamp.as_ref().and_then(|timestamp| {
+                        timestamp
+                            .parsed
+                            .map(|value| value.with_timezone(&chrono::Utc))
+                    }),
                     &model,
                     totals.input,
                     totals.cached,
@@ -154,7 +159,16 @@ impl CodexParserState {
         }
 
         if is_token_count {
-            self.record_token_count(&obj, day_key, range);
+            self.record_token_count(
+                &obj,
+                day_key,
+                parsed_timestamp.as_ref().and_then(|timestamp| {
+                    timestamp
+                        .parsed
+                        .map(|value| value.with_timezone(&chrono::Utc))
+                }),
+                range,
+            );
         }
     }
 
@@ -176,7 +190,14 @@ impl CodexParserState {
                 if !CostUsageDayRange::is_in_range(&day_key, &range.since_key, &range.until_key) {
                     return;
                 }
-                self.record_fast_token_count(payload, day_key, range);
+                self.record_fast_token_count(
+                    payload,
+                    day_key,
+                    parsed_timestamp
+                        .parsed
+                        .map(|value| value.with_timezone(&chrono::Utc)),
+                    range,
+                );
             }
         }
     }
@@ -212,7 +233,13 @@ impl CodexParserState {
             .map(str::to_string);
     }
 
-    fn record_token_count(&mut self, obj: &Value, day_key: String, range: &CostUsageDayRange) {
+    fn record_token_count(
+        &mut self,
+        obj: &Value,
+        day_key: String,
+        timestamp: Option<chrono::DateTime<chrono::Utc>>,
+        range: &CostUsageDayRange,
+    ) {
         let Some(payload) = token_count_payload(obj) else {
             return;
         };
@@ -229,6 +256,7 @@ impl CodexParserState {
         self.record_usage(
             range,
             day_key,
+            timestamp,
             &model,
             delta_input,
             delta_cached,
@@ -241,6 +269,7 @@ impl CodexParserState {
         &mut self,
         payload: CodexFastPayload<'_>,
         day_key: String,
+        timestamp: Option<chrono::DateTime<chrono::Utc>>,
         range: &CostUsageDayRange,
     ) {
         let Some((delta_input, delta_cached, delta_output, reasoning)) =
@@ -270,6 +299,7 @@ impl CodexParserState {
         self.record_usage(
             range,
             day_key,
+            timestamp,
             &model,
             delta_input,
             delta_cached,
@@ -286,6 +316,7 @@ impl CodexParserState {
         &mut self,
         range: &CostUsageDayRange,
         day_key: String,
+        timestamp: Option<chrono::DateTime<chrono::Utc>>,
         model: &str,
         input: i64,
         cached: i64,
@@ -297,6 +328,7 @@ impl CodexParserState {
         }
         self.records.push(CodexUsageRecord {
             day_key,
+            timestamp,
             model: CostUsagePricing::normalize_codex_model(model),
             input,
             cached: cached.min(input),

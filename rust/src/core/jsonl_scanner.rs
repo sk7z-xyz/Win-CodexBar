@@ -9,10 +9,10 @@
 )]
 
 use crate::core::{CostUsagePricing, ProviderId};
-use chrono::{NaiveDate, Utc};
+use chrono::{DateTime, NaiveDate, Utc};
 
 #[cfg(test)]
-use chrono::{DateTime, Local};
+use chrono::Local;
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 use std::collections::HashMap;
@@ -364,6 +364,10 @@ pub struct CodexParseResult {
 #[derive(Debug, Clone)]
 pub struct CodexUsageRecord {
     pub day_key: String,
+    /// Timestamp of the source usage event when the log provided one.
+    /// This is retained for short rolling-window usage views; older callers
+    /// may leave it unset when constructing synthetic records.
+    pub timestamp: Option<DateTime<Utc>>,
     pub model: String,
     pub input: i64,
     pub cached: i64,

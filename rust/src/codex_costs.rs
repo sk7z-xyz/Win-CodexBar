@@ -485,6 +485,7 @@ mod tests {
         let range = CostUsageDayRange::new(target, target);
         let make_record = |reasoning| CodexUsageRecord {
             day_key: "2026-05-31".to_string(),
+            timestamp: None,
             model: "gpt-5.6-sol".to_string(),
             input: 100,
             cached: 0,
@@ -515,6 +516,7 @@ mod tests {
         let range = CostUsageDayRange::new(target, target);
         let make_record = |reasoning| CodexUsageRecord {
             day_key: "2026-05-31".to_string(),
+            timestamp: None,
             model: "gpt-5.6-sol".to_string(),
             input: 1,
             cached: 0,
@@ -576,6 +578,7 @@ mod tests {
         let records = vec![
             CodexUsageRecord {
                 day_key: "2026-05-31".to_string(),
+                timestamp: None,
                 model: "gpt-5.6-sol".to_string(),
                 input: 200_000,
                 cached: 0,
@@ -584,6 +587,7 @@ mod tests {
             },
             CodexUsageRecord {
                 day_key: "2026-05-31".to_string(),
+                timestamp: None,
                 model: "gpt-5.6-sol".to_string(),
                 input: 200_000,
                 cached: 0,
@@ -592,6 +596,7 @@ mod tests {
             },
             CodexUsageRecord {
                 day_key: "2026-05-30".to_string(),
+                timestamp: None,
                 model: "gpt-5.6-sol".to_string(),
                 input: 200_000,
                 cached: 0,
@@ -639,6 +644,7 @@ mod tests {
         let records = vec![
             CodexUsageRecord {
                 day_key: "2026-08-19".to_string(),
+                timestamp: None,
                 model: "gpt-5.6-sol".to_string(),
                 input: 100,
                 cached: 0,
@@ -647,6 +653,7 @@ mod tests {
             },
             CodexUsageRecord {
                 day_key: "2026-08-19".to_string(),
+                timestamp: None,
                 model: "deepseek/deepseek-chat".to_string(),
                 input: 1_000_000,
                 cached: 0,
@@ -670,6 +677,7 @@ mod tests {
     fn routed_models_are_not_persisted_in_codex_day_token_cache() {
         let records = vec![CodexUsageRecord {
             day_key: "2026-08-19".to_string(),
+            timestamp: None,
             model: "opencode/gpt-5".to_string(),
             input: 10,
             cached: 0,
@@ -687,6 +695,7 @@ mod tests {
         let range = CostUsageDayRange::new(target, target);
         let records = vec![CodexUsageRecord {
             day_key: "2026-05-31".to_string(),
+            timestamp: None,
             model: CostUsagePricing::CODEX_UNATTRIBUTED_MODEL.to_string(),
             input: 55_000_000,
             cached: 0,
@@ -716,6 +725,7 @@ mod tests {
         let range = CostUsageDayRange::new(target, target);
         let records = vec![CodexUsageRecord {
             day_key: "2026-05-31".to_string(),
+            timestamp: None,
             model: "gpt-mystery".to_string(),
             input: 1_000_000,
             cached: 0,

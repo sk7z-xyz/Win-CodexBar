@@ -164,10 +164,13 @@ export default function MenuCard({
     }
     let cancelled = false;
     setChartData(null);
-    getProviderChartData(
-      provider.providerId,
-      provider.accountEmail ?? undefined,
-    )
+    (provider.providerId === "codex" && provider.primary.resetsAt
+      ? getProviderChartData(
+          provider.providerId,
+          provider.accountEmail ?? undefined,
+          provider.primary.resetsAt,
+        )
+      : getProviderChartData(provider.providerId, provider.accountEmail ?? undefined))
       .then((data) => {
         if (!cancelled) {
           setChartData(data);

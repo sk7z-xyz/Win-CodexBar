@@ -782,6 +782,19 @@ export interface ProviderLocalUsageSummary {
     tokens: number | null;
     cost: number | null;
   }>;
+  fiveHourModelUsage?: Array<{
+    model: string;
+    tokens: number | null;
+    cost: number | null;
+  }>;
+  recentModelUsage?: Array<{
+    minutes: number;
+    modelUsage: Array<{
+      model: string;
+      tokens: number | null;
+      cost: number | null;
+    }>;
+  }>;
   estimateNote: string;
   tokenCostUpdatedAtMs: number;
 }
