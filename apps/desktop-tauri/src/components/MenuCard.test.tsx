@@ -166,6 +166,10 @@ describe("MenuCard", () => {
         thirtyDayTokens: 584_000,
         latestTokens: null,
         topModel: "glim-4.6",
+        modelUsage: [
+          { model: "gpt-5.6-luna", tokens: 420_000, cost: 0.84 },
+          { model: "gpt-5.6-sol", tokens: 164_000, cost: 0.39 },
+        ],
         estimateNote: "Estimated from local logs",
         tokenCostUpdatedAtMs: 1234,
       },
@@ -486,7 +490,7 @@ describe("MenuCard", () => {
 
     await waitFor(() => {
       expect(container.querySelector(".menu-card__pace-eta")).toHaveTextContent(
-        "⚠ Runs out in 2h",
+        "⚠ Runs out in 1h 30m",
       );
     });
   });
@@ -559,11 +563,49 @@ describe("MenuCard", () => {
     expect(screen.getAllByText("$1.23").length).toBeGreaterThan(0);
     expect(screen.getByText("30d tokens")).toBeInTheDocument();
     expect(screen.getByText("584K")).toBeInTheDocument();
+    expect(screen.getByText("gpt-5.6-luna")).toBeInTheDocument();
+    expect(screen.getByText("420K tokens · $0.84")).toBeInTheDocument();
+    expect(screen.getByText("gpt-5.6-sol")).toBeInTheDocument();
+    expect(screen.getByText("164K tokens · $0.39")).toBeInTheDocument();
+    expect(screen.queryByText(/Top model:/)).not.toBeInTheDocument();
     expect(screen.getByText("Estimated from local logs")).toBeInTheDocument();
     const details = container.querySelector<HTMLDetailsElement>(".menu-card__more")!;
     expect(details.open).toBe(false);
     fireEvent.click(details.querySelector("summary")!);
     expect(details.open).toBe(true);
+  });
+
+  it("refreshes rolling local usage when an auto-refreshed provider snapshot changes", async () => {
+    const resetAt = new Date(Date.now() + 4 * 60 * 60 * 1000).toISOString();
+    const first = provider(null, 10);
+    first.providerId = "codex";
+    first.displayName = "Codex";
+    first.primary = rateWindow(10, { windowMinutes: 5 * 60, resetsAt: resetAt });
+    first.updatedAt = "2026-05-24T00:00:00Z";
+    const rendered = renderCard(first);
+
+    await waitFor(() => {
+      expect(tauriMocks.getProviderChartData).toHaveBeenCalledTimes(1);
+    });
+
+    const refreshed = { ...first, updatedAt: "2026-05-24T00:05:00Z" };
+    rendered.rerender(
+      <LocaleProvider>
+        <MenuCard
+          provider={refreshed}
+          display={{ hideEmail: false, resetTimeRelative: true }}
+        />
+      </LocaleProvider>,
+    );
+
+    await waitFor(() => {
+      expect(tauriMocks.getProviderChartData).toHaveBeenCalledTimes(2);
+    });
+    expect(tauriMocks.getProviderChartData).toHaveBeenLastCalledWith(
+      "codex",
+      undefined,
+      resetAt,
+    );
   });
 
   it("places Claude accounts above metrics and the collapsed usage details", async () => {

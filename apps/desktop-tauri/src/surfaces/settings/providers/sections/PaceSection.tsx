@@ -35,6 +35,15 @@ export function PaceSection({ pace, t }: Props) {
         {stageLabel}
       </div>
       {aux && <div className="provider-detail-pace__aux">{aux}</div>}
+      {pace.burnRates && (
+        <div className="provider-detail-pace__rates" aria-label="Burn rate">
+          {(["5m", "15m", "30m", "60m"] as const).map((horizon) => {
+            const rate = pace.burnRates?.[horizon];
+            const value = rate == null ? "—" : `${rate < 1 ? rate.toFixed(2) : rate < 10 ? rate.toFixed(1) : rate.toFixed(0)}%/m`;
+            return <span key={horizon}>{horizon} {value}</span>;
+          })}
+        </div>
+      )}
     </section>
   );
 }

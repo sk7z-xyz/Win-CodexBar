@@ -5,6 +5,7 @@
 //! the Codex / OpenAI dashboard cache and require an `account_email` to scope
 //! reads to the right cached bundle.
 
+use chrono::{DateTime, Duration as ChronoDuration, Utc};
 use codexbar::core::OpenAIDashboardCacheStore;
 use codexbar::cost_scanner::{
     CostScanner, CostSummary, get_daily_cost_history, get_daily_token_history,
@@ -63,8 +64,30 @@ pub struct ProviderLocalUsageSummary {
     pub thirty_day_tokens: Option<u64>,
     pub latest_tokens: Option<u64>,
     pub top_model: Option<String>,
+    pub model_usage: Vec<ProviderLocalModelUsage>,
+    /// Codex model usage since the active five-hour quota window began.
+    #[serde(default)]
+    pub five_hour_model_usage: Vec<ProviderLocalModelUsage>,
+    /// Codex model usage for selectable short rolling windows (5/15/30/60m).
+    #[serde(default)]
+    pub recent_model_usage: Vec<ProviderLocalModelUsageWindow>,
     pub estimate_note: String,
     pub token_cost_updated_at_ms: i64,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ProviderLocalModelUsage {
+    pub model: String,
+    pub tokens: Option<u64>,
+    pub cost: Option<f64>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ProviderLocalModelUsageWindow {
+    pub minutes: u32,
+    pub model_usage: Vec<ProviderLocalModelUsage>,
 }
 
 /// Full chart data bundle for one provider.
@@ -86,11 +109,12 @@ pub struct ProviderChartData {
 pub async fn get_provider_chart_data(
     provider_id: String,
     account_email: Option<String>,
+    reset_at: Option<String>,
 ) -> ProviderChartData {
     let fallback_provider_id = provider_id.clone();
     let cancel = register_chart_scan(&provider_id);
     tauri::async_runtime::spawn_blocking(move || {
-        build_provider_chart_data_with_cancel(provider_id, account_email, Some(cancel))
+        build_provider_chart_data_with_cancel(provider_id, account_email, reset_at, Some(cancel))
     })
     .await
     .unwrap_or_else(|err| {
@@ -118,12 +142,13 @@ pub(crate) fn build_provider_chart_data(
     provider_id: String,
     account_email: Option<String>,
 ) -> ProviderChartData {
-    build_provider_chart_data_with_cancel(provider_id, account_email, None)
+    build_provider_chart_data_with_cancel(provider_id, account_email, None, None)
 }
 
 fn build_provider_chart_data_with_cancel(
     provider_id: String,
     account_email: Option<String>,
+    reset_at: Option<String>,
     cancel: Option<Arc<AtomicBool>>,
 ) -> ProviderChartData {
     let raw_cost = get_daily_cost_history(&provider_id, 30);
@@ -146,7 +171,7 @@ fn build_provider_chart_data_with_cancel(
     {
         None
     } else {
-        load_local_usage_summary_cached(&provider_id, cancel.as_deref())
+        load_local_usage_summary_cached(&provider_id, reset_at.as_deref(), cancel.as_deref())
     };
 
     ProviderChartData {
@@ -189,15 +214,9 @@ fn register_chart_scan(provider_id: &str) -> Arc<AtomicBool> {
     next
 }
 
-fn load_local_usage_summary(
-    provider_id: &str,
-    cancel: Option<&AtomicBool>,
-) -> Option<ProviderLocalUsageSummary> {
-    load_local_usage_summary_with_unknown_models(provider_id, cancel).0
-}
-
 fn load_local_usage_summary_with_unknown_models(
     provider_id: &str,
+    reset_at: Option<&str>,
     cancel: Option<&AtomicBool>,
 ) -> (Option<ProviderLocalUsageSummary>, HashSet<String>) {
     let Some(thirty_day) = scan_local_cost(provider_id, 30, cancel) else {
@@ -222,6 +241,11 @@ fn load_local_usage_summary_with_unknown_models(
     }
 
     let lang = locale::current_language();
+    let (five_hour_model_usage, recent_model_usage) = if provider_id == "codex" {
+        codex_window_model_usage(reset_at)
+    } else {
+        (Vec::new(), Vec::new())
+    };
     (
         Some(ProviderLocalUsageSummary {
             today_cost: non_zero_f64(today.total_cost_usd),
@@ -229,6 +253,9 @@ fn load_local_usage_summary_with_unknown_models(
             thirty_day_tokens: non_zero_u64(thirty_day_tokens),
             latest_tokens: non_zero_u64(latest_tokens),
             top_model: top_model(&thirty_day),
+            model_usage: model_usage(&thirty_day),
+            five_hour_model_usage,
+            recent_model_usage,
             estimate_note: localized_estimate_note(provider_id, lang),
             token_cost_updated_at_ms: current_unix_ms(),
         }),
@@ -239,11 +266,12 @@ fn load_local_usage_summary_with_unknown_models(
 pub(crate) fn load_provider_local_usage_summary(
     provider_id: &str,
 ) -> Option<ProviderLocalUsageSummary> {
-    load_local_usage_summary_cached(provider_id, None)
+    load_local_usage_summary_cached(provider_id, None, None)
 }
 
 struct CachedLocalUsage {
     loaded_at: Instant,
+    reset_at: Option<String>,
     summary: Option<ProviderLocalUsageSummary>,
 }
 
@@ -279,9 +307,18 @@ pub(crate) async fn refresh_provider_local_usage_cache(provider_ids: Vec<String>
         provider_ids
             .into_iter()
             .map(|provider_id| {
-                let (summary, unknown_models) =
-                    load_local_usage_summary_with_unknown_models(&provider_id, None);
-                (provider_id, summary, unknown_models)
+                // Keep the reset-at scope selected by an already-mounted
+                // chart. The enrichment pass normally runs without a reset
+                // timestamp, but replacing a reset-scoped entry with a
+                // `None` key makes the next chart request miss its cache and
+                // can race the provider refresh that triggered it.
+                let reset_at = cached_local_usage_reset_at(&provider_id);
+                let (summary, unknown_models) = load_local_usage_summary_with_unknown_models(
+                    &provider_id,
+                    reset_at.as_deref(),
+                    None,
+                );
+                (provider_id, reset_at, summary, unknown_models)
             })
             .collect::<Vec<_>>()
     })
@@ -297,7 +334,7 @@ pub(crate) async fn refresh_provider_local_usage_cache(provider_ids: Vec<String>
         }
     };
 
-    for (provider_id, mut summary, unknown_models) in scans {
+    for (provider_id, scanned_reset_at, mut summary, unknown_models) in scans {
         let pricing_provider = match provider_id.as_str() {
             "codex" => Some("openai"),
             "claude" => Some("anthropic"),
@@ -308,14 +345,40 @@ pub(crate) async fn refresh_provider_local_usage_cache(provider_ids: Vec<String>
                 .await
         {
             let rescan_provider = provider_id.clone();
+            let rescan_reset_at = scanned_reset_at.clone();
             summary = tauri::async_runtime::spawn_blocking(move || {
-                load_local_usage_summary(&rescan_provider, None)
+                load_local_usage_summary_with_unknown_models(
+                    &rescan_provider,
+                    rescan_reset_at.as_deref(),
+                    None,
+                )
+                .0
             })
             .await
             .unwrap_or(summary);
         }
-        store_local_usage_summary(&provider_id, summary);
+        // A chart request may have established a reset scope while the
+        // enrichment scan was running. Prefer that latest scope and rebuild
+        // only the inexpensive rolling model windows before storing, so the
+        // enrichment result cannot overwrite a newer reset-aware snapshot.
+        let reset_at = cached_local_usage_reset_at(&provider_id).or(scanned_reset_at);
+        if provider_id == "codex"
+            && let Some(ref mut usage) = summary
+        {
+            let (five_hour, recent) = codex_window_model_usage(reset_at.as_deref());
+            usage.five_hour_model_usage = five_hour;
+            usage.recent_model_usage = recent;
+        }
+        store_local_usage_summary(&provider_id, reset_at.as_deref(), summary);
     }
+}
+
+fn cached_local_usage_reset_at(provider_id: &str) -> Option<String> {
+    local_usage_cache().lock().ok().and_then(|guard| {
+        guard
+            .get(provider_id)
+            .and_then(|entry| entry.reset_at.clone())
+    })
 }
 
 #[cfg(test)]
@@ -323,16 +386,18 @@ pub(crate) fn cache_provider_local_usage_summary_for_test(
     provider_id: &str,
     summary: Option<ProviderLocalUsageSummary>,
 ) {
-    store_local_usage_summary(provider_id, summary);
+    store_local_usage_summary(provider_id, None, summary);
 }
 
 fn load_local_usage_summary_cached(
     provider_id: &str,
+    reset_at: Option<&str>,
     cancel: Option<&AtomicBool>,
 ) -> Option<ProviderLocalUsageSummary> {
     let cache = local_usage_cache();
     if let Ok(guard) = cache.lock()
         && let Some(entry) = guard.get(provider_id)
+        && entry.reset_at.as_deref() == reset_at
         && token_cost_cache_is_fresh(Some(entry.loaded_at), Instant::now(), LOCAL_USAGE_TTL)
     {
         return entry.summary.clone();
@@ -342,21 +407,26 @@ fn load_local_usage_summary_cached(
         return None;
     }
 
-    let summary = load_local_usage_summary(provider_id, cancel);
+    let summary = load_local_usage_summary_with_unknown_models(provider_id, reset_at, cancel).0;
     if cancel.is_some_and(|flag| flag.load(Ordering::Relaxed)) {
         return None;
     }
 
-    store_local_usage_summary(provider_id, summary.clone());
+    store_local_usage_summary(provider_id, reset_at, summary.clone());
     summary
 }
 
-fn store_local_usage_summary(provider_id: &str, summary: Option<ProviderLocalUsageSummary>) {
+fn store_local_usage_summary(
+    provider_id: &str,
+    reset_at: Option<&str>,
+    summary: Option<ProviderLocalUsageSummary>,
+) {
     if let Ok(mut guard) = local_usage_cache().lock() {
         guard.insert(
             provider_id.to_string(),
             CachedLocalUsage {
                 loaded_at: Instant::now(),
+                reset_at: reset_at.map(str::to_string),
                 summary,
             },
         );
@@ -374,6 +444,7 @@ fn record_local_usage_fetch_failure(provider_id: &str, failure: CostFetchFailure
             provider_id.to_string(),
             CachedLocalUsage {
                 loaded_at,
+                reset_at: None,
                 summary: None,
             },
         );
@@ -460,6 +531,69 @@ fn top_model(summary: &CostSummary) -> Option<String> {
         })
 }
 
+fn model_usage(summary: &CostSummary) -> Vec<ProviderLocalModelUsage> {
+    let mut model_names: HashSet<&String> = summary.by_model_tokens.keys().collect();
+    model_names.extend(summary.by_model.keys());
+    let mut rows: Vec<_> = model_names
+        .into_iter()
+        .map(|model| ProviderLocalModelUsage {
+            model: model.clone(),
+            tokens: summary
+                .by_model_tokens
+                .get(model)
+                .and_then(|counts| non_zero_u64(counts.total())),
+            cost: summary.by_model.get(model).copied().and_then(non_zero_f64),
+        })
+        .collect();
+    rows.sort_by(|a, b| {
+        b.tokens
+            .unwrap_or_default()
+            .cmp(&a.tokens.unwrap_or_default())
+            .then_with(|| {
+                b.cost
+                    .unwrap_or_default()
+                    .total_cmp(&a.cost.unwrap_or_default())
+            })
+            .then_with(|| a.model.cmp(&b.model))
+    });
+    rows
+}
+
+fn codex_window_model_usage(
+    reset_at: Option<&str>,
+) -> (
+    Vec<ProviderLocalModelUsage>,
+    Vec<ProviderLocalModelUsageWindow>,
+) {
+    let now = Utc::now();
+    let fallback_start = now - ChronoDuration::hours(5);
+    let five_hour_start = reset_at
+        .and_then(|value| DateTime::parse_from_rfc3339(value).ok())
+        .map(|value| value.with_timezone(&Utc) - ChronoDuration::hours(5))
+        .filter(|start| {
+            *start <= now && now.signed_duration_since(*start) <= ChronoDuration::hours(6)
+        })
+        .unwrap_or(fallback_start);
+    let scanner = CostScanner::new(1);
+    let records = scanner.scan_codex_records_since(five_hour_start);
+    let summarize = |start: DateTime<Utc>| {
+        let filtered: Vec<_> = records
+            .iter()
+            .filter(|record| record.timestamp.is_some_and(|timestamp| timestamp >= start))
+            .cloned()
+            .collect();
+        model_usage(&codexbar::cost_scanner::summarize_codex_records(&filtered))
+    };
+    let recent_model_usage = [5_u32, 15, 30, 60]
+        .into_iter()
+        .map(|minutes| ProviderLocalModelUsageWindow {
+            minutes,
+            model_usage: summarize(now - ChronoDuration::minutes(i64::from(minutes))),
+        })
+        .collect();
+    (summarize(five_hour_start), recent_model_usage)
+}
+
 fn load_openai_dashboard_chart_data(
     provider_id: &str,
     account_email: Option<&str>,
@@ -529,8 +663,9 @@ pub(crate) fn load_openai_dashboard_chart_data_for_test(
 #[cfg(test)]
 mod tests {
     use super::{
-        CostFetchFailure, ProviderLocalUsageSummary, cost_fetch_failure_allows_early_retry,
-        localized_estimate_note, token_cost_cache_is_fresh,
+        CostFetchFailure, ProviderLocalModelUsage, ProviderLocalModelUsageWindow,
+        ProviderLocalUsageSummary, cost_fetch_failure_allows_early_retry, localized_estimate_note,
+        model_usage, token_cost_cache_is_fresh,
     };
     use crate::commands::is_provider_cache_fresh;
     use codexbar::settings::Language;
@@ -570,6 +705,20 @@ mod tests {
             thirty_day_tokens: Some(300),
             latest_tokens: Some(40),
             top_model: Some("gpt-5".to_string()),
+            model_usage: vec![ProviderLocalModelUsage {
+                model: "gpt-5".to_string(),
+                tokens: Some(300),
+                cost: Some(2.0),
+            }],
+            five_hour_model_usage: Vec::new(),
+            recent_model_usage: vec![ProviderLocalModelUsageWindow {
+                minutes: 60,
+                model_usage: vec![ProviderLocalModelUsage {
+                    model: "gpt-5".to_string(),
+                    tokens: Some(12),
+                    cost: Some(0.1),
+                }],
+            }],
             estimate_note: "estimated".to_string(),
             token_cost_updated_at_ms: 1234,
         };
@@ -579,6 +728,23 @@ mod tests {
             json.get("tokenCostUpdatedAtMs").and_then(|v| v.as_i64()),
             Some(1234)
         );
+        assert_eq!(json["modelUsage"][0]["model"], "gpt-5");
+        assert_eq!(json["modelUsage"][0]["tokens"], 300);
+        assert_eq!(json["recentModelUsage"][0]["minutes"], 60);
+        assert_eq!(json["recentModelUsage"][0]["modelUsage"][0]["tokens"], 12);
+    }
+
+    #[test]
+    fn model_usage_includes_and_sorts_every_costed_model() {
+        let mut summary = codexbar::cost_scanner::CostSummary::default();
+        summary.by_model.insert("gpt-5.6-sol".to_string(), 1.25);
+        summary.by_model.insert("gpt-5.6-luna".to_string(), 2.5);
+
+        let rows = model_usage(&summary);
+        assert_eq!(rows.len(), 2);
+        assert_eq!(rows[0].model, "gpt-5.6-luna");
+        assert_eq!(rows[0].cost, Some(2.5));
+        assert_eq!(rows[1].model, "gpt-5.6-sol");
     }
 
     #[test]

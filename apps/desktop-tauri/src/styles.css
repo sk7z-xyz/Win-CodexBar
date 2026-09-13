@@ -4512,6 +4512,43 @@ html:has(.menu-surface--tray) {
   color: var(--pace-steady-fg);
 }
 
+.provider-detail-pace__rates {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px 10px;
+  margin-top: 5px;
+  color: var(--provider-row-text-secondary);
+  font-size: 0.72rem;
+  font-variant-numeric: tabular-nums;
+}
+
+.menu-card__pace-burn-rates {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px 10px;
+  color: var(--text-secondary);
+  font-size: 10px;
+  font-variant-numeric: tabular-nums;
+}
+
+.menu-card__model-usage {
+  display: grid;
+  gap: 3px;
+  width: 100%;
+}
+
+.menu-card__model-usage-row {
+  display: flex;
+  justify-content: space-between;
+  gap: 12px;
+  font-variant-numeric: tabular-nums;
+}
+
+.menu-card__model-usage-row > span {
+  color: var(--text-secondary);
+  white-space: nowrap;
+}
+
 .menu-card__charts {
   gap: 10px;
 }

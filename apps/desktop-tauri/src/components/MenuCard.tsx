@@ -164,10 +164,13 @@ export default function MenuCard({
     }
     let cancelled = false;
     setChartData(null);
-    getProviderChartData(
-      provider.providerId,
-      provider.accountEmail ?? undefined,
-    )
+    (provider.providerId === "codex" && provider.primary.resetsAt
+      ? getProviderChartData(
+          provider.providerId,
+          provider.accountEmail ?? undefined,
+          provider.primary.resetsAt,
+        )
+      : getProviderChartData(provider.providerId, provider.accountEmail ?? undefined))
       .then((data) => {
         if (!cancelled) {
           setChartData(data);
@@ -180,7 +183,11 @@ export default function MenuCard({
     return () => {
       cancelled = true;
     };
-  }, [provider.providerId, provider.accountEmail, onLayoutChange]);
+  // Provider snapshots receive a fresh updatedAt on every successful
+  // auto-refresh. Include it here so rolling local windows (5m/15m/30m/60m)
+  // are re-read after a refresh while the backend's short TTL still prevents
+  // an expensive log scan on every render.
+  }, [provider.providerId, provider.accountEmail, provider.updatedAt, onLayoutChange]);
 
   const isWayfinder = provider.providerId === "wayfinder";
   const email = !isWayfinder && provider.accountEmail

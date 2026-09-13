@@ -572,6 +572,15 @@ export interface PaceSnapshot {
   etaSeconds: number | null;
   expectedUsedPercent: number;
   actualUsedPercent: number;
+  /** Device-local recent quota burn rates, in percentage points per minute. */
+  burnRates?: {
+    "5m": number | null;
+    "15m": number | null;
+    "30m": number | null;
+    "60m": number | null;
+  };
+  /** True when ETA uses persisted local observations instead of window average. */
+  historical?: boolean;
 }
 
 export interface SessionEquivalentForecastSnapshot {
@@ -768,6 +777,24 @@ export interface ProviderLocalUsageSummary {
   thirtyDayTokens: number | null;
   latestTokens: number | null;
   topModel: string | null;
+  modelUsage?: Array<{
+    model: string;
+    tokens: number | null;
+    cost: number | null;
+  }>;
+  fiveHourModelUsage?: Array<{
+    model: string;
+    tokens: number | null;
+    cost: number | null;
+  }>;
+  recentModelUsage?: Array<{
+    minutes: number;
+    modelUsage: Array<{
+      model: string;
+      tokens: number | null;
+      cost: number | null;
+    }>;
+  }>;
   estimateNote: string;
   tokenCostUpdatedAtMs: number;
 }

@@ -9,7 +9,8 @@ pub(super) fn paused_codex_summary(
         .previous_report
         .clone()
         .unwrap_or_else(|| JsonlScanner::cached_cost_report_from_days(cache));
-    summary_from_cached_report(&report, start_date, today)
+    let range = CostUsageDayRange::new(start_date, today);
+    summary_from_cached_report_with_model_breakdown(&report, cache, &range, start_date, today)
 }
 
 /// Return cached Codex files that are provably gone from the portion of the

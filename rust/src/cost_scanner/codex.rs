@@ -37,6 +37,24 @@ fn summary_from_cached_report(
     }
 }
 
+fn summary_from_cached_report_with_model_breakdown(
+    report: &CachedCostReport,
+    cache: &CostUsageCache,
+    range: &CostUsageDayRange,
+    period_start: NaiveDate,
+    period_end: NaiveDate,
+) -> CostSummary {
+    let mut summary = summary_from_cached_report(report, period_start, period_end);
+    let mut breakdown = CostSummary::default();
+    add_codex_days_map_to_summary(&mut breakdown, &cache.days, range);
+    summary.by_model = breakdown.by_model;
+    summary.by_model_tokens = breakdown.by_model_tokens;
+    summary.by_speed = breakdown.by_speed;
+    summary.by_speed_tokens = breakdown.by_speed_tokens;
+    summary.unknown_models = breakdown.unknown_models;
+    summary
+}
+
 fn codex_fork_parent_is_safe(cache: &CostUsageCache, usage: &CostUsageFileUsage) -> bool {
     usage.codex_forked_from_id.as_deref().is_none()
         || codex_parent_baseline(
@@ -129,6 +147,50 @@ struct CodexFileScanOutcome {
 
 /// Cost usage scanner
 impl CostScanner {
+    /// Read timestamped Codex usage deltas for a short-lived window.
+    ///
+    /// The normal scanner intentionally packs history by calendar day for a
+    /// compact persistent cache.  Pace/model-window views need event
+    /// timestamps, so they use this bounded raw-log path and never mutate the
+    /// normal cache.  Records without a valid source timestamp are skipped.
+    pub fn scan_codex_records_since(
+        &self,
+        start: chrono::DateTime<chrono::Utc>,
+    ) -> Vec<crate::core::CodexUsageRecord> {
+        let now = chrono::Utc::now();
+        let local_start = start.with_timezone(&chrono::Local).date_naive();
+        let local_end = now.with_timezone(&chrono::Local).date_naive();
+        let range = CostUsageDayRange::new(local_start, local_end);
+        let mut paths = HashSet::new();
+        let mut files = Vec::new();
+        for root in self.get_codex_sessions_dirs() {
+            for path in JsonlScanner::list_codex_session_files(
+                &root,
+                &range.scan_since_key,
+                &range.scan_until_key,
+            ) {
+                let key = path.to_string_lossy().to_ascii_lowercase();
+                if paths.insert(key) {
+                    files.push(path);
+                }
+            }
+        }
+        files.sort();
+
+        let mut records = Vec::new();
+        for path in files {
+            let Ok(parsed) = JsonlScanner::parse_codex_file(&path, &range, 0, None, None) else {
+                continue;
+            };
+            records.extend(parsed.records.into_iter().filter(|record| {
+                record
+                    .timestamp
+                    .is_some_and(|timestamp| timestamp >= start && timestamp <= now)
+            }));
+        }
+        records
+    }
+
     pub fn scan_codex(&self) -> CostSummary {
         self.scan_codex_with_cancel(None)
     }
@@ -468,7 +530,11 @@ impl CostScanner {
             cache
                 .previous_report
                 .as_ref()
-                .map(|report| summary_from_cached_report(report, start_date, today))
+                .map(|report| {
+                    summary_from_cached_report_with_model_breakdown(
+                        report, &cache, &range, start_date, today,
+                    )
+                })
                 .unwrap_or(rebuilt)
         } else {
             rebuilt
