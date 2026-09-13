@@ -237,6 +237,12 @@ function paceStageKey(stage: PaceSnapshot["stage"]): LocaleKey {
   }
 }
 
+function formatBurnRate(rate: number | null): string {
+  if (rate == null || !Number.isFinite(rate)) return "—";
+  const precision = rate < 1 ? 2 : rate < 10 ? 1 : 0;
+  return `${rate.toFixed(precision)}%/m`;
+}
+
 type UsageLevel = "normal" | "high" | "critical" | "exhausted";
 const WEEKLY_WINDOW_MINUTES = 7 * 24 * 60;
 
@@ -667,6 +673,15 @@ export default function MenuCardDetails({
                 {provider.pace.willLastToReset && (
                   <div className="menu-card__pace-ok">
                     ✓ {t("DetailPaceWillLastToReset")}
+                  </div>
+                )}
+                {provider.pace.burnRates && (
+                  <div className="menu-card__pace-burn-rates" aria-label="Burn rate">
+                    {(["5m", "15m", "30m", "60m"] as const).map((horizon) => (
+                      <span key={horizon}>
+                        {horizon} {formatBurnRate(provider.pace!.burnRates![horizon])}
+                      </span>
+                    ))}
                   </div>
                 )}
               </section>

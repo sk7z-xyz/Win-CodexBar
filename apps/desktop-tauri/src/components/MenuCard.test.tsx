@@ -486,7 +486,7 @@ describe("MenuCard", () => {
 
     await waitFor(() => {
       expect(container.querySelector(".menu-card__pace-eta")).toHaveTextContent(
-        "⚠ Runs out in 2h",
+        "⚠ Runs out in 1h 30m",
       );
     });
   });

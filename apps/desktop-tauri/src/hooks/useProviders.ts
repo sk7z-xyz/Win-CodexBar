@@ -10,6 +10,7 @@ import {
   refreshProviders,
   refreshProvidersIfStale,
 } from "../lib/tauri";
+import { enrichSnapshotWithHistoricalPace } from "../lib/paceHistory";
 
 export interface UseProvidersOptions {
   /**
@@ -75,10 +76,13 @@ export function useProviders(options: UseProvidersOptions = {}): UseProvidersRes
 
   const mergeSnapshots = useCallback((snapshots: ProviderUsageSnapshot[]) => {
     if (snapshots.length === 0) return;
+    const enrichedSnapshots = snapshots.map((snapshot) =>
+      enrichSnapshotWithHistoricalPace(snapshot),
+    );
     setProviders((prev) => {
       const next = [...prev];
       const byId = new Map(next.map((provider, index) => [provider.providerId, index]));
-      for (const snapshot of snapshots) {
+      for (const snapshot of enrichedSnapshots) {
         const idx = byId.get(snapshot.providerId);
         if (idx !== undefined) {
           next[idx] = snapshot;
